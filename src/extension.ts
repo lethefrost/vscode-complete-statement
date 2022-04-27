@@ -17,6 +17,13 @@ export function deactivate() {
     console.log('"complete-statement" is deactivated.')
 }
 
+
+// todo: format current line,
+// * adding spaces to () "" : +-/*%{}[]<>
+// * remove trailing spaces and redundant spaces in the line, except those in string.
+// todo: add setting to configure languages that don't use semicolons to break a line.
+// todo: add more languages' syntax support, for example python-like : instead of {}
+
 function complete_statement(textEditor: vscode.TextEditor,
                             textEditorEdit: vscode.TextEditorEdit
                            ): void
@@ -38,81 +45,74 @@ function complete_statement(textEditor: vscode.TextEditor,
     const indent_space_count: number = tab_stop * (indent_level + 1)
     const indent_spaces: string = " ".repeat(indent_space_count)
     const less_indent_spaces: string = " ".repeat(tab_stop * indent_level)
-    const is_at_end = (): boolean => {
-        const editor = vscode.window.activeTextEditor
-        if (editor) {
-            let position: vscode.Position = editor.selection.active
-            return position.character == current_line.range.end.character
-        } else {
-            return false
-        }
-    }
     
-    if (current_line.text.trim() === '}')
-    {
-        vscode.commands.executeCommand('cursorMove', {'to': 'up'})
+    
+    if (looks_like_complex_structure(current_line)) {
+        
         vscode.commands.executeCommand('cursorMove', {'to': 'wrappedLineEnd'})
-    }
-    else if (looks_like_complex_structure(current_line))
-    {
-        if (current_line.text.endsWith('{'))
+        let braces: string
+        const allman: boolean =
+                vscode.workspace.getConfiguration('complete-statement').get('allman', false)
+        if (allman)
         {
-            vscode.commands.executeCommand('cursorMove', {'to': 'down'})
-            vscode.commands.executeCommand('cursorMove', {'to': 'wrappedLineEnd'})
+            braces = `\n${less_indent_spaces}{\n${indent_spaces}` +
+                    `\n${less_indent_spaces}}`
         }
         else
         {
-            let braces: string
-            const allman: boolean =
-                    vscode.workspace.getConfiguration('complete-statement').get('allman', false)
-            if (allman)
+            braces = `{\n${indent_spaces}\n${less_indent_spaces}}`
+            if (!current_line.text.endsWith(" ")) // avoid duplicated spaces
             {
-                braces = `\n${less_indent_spaces}{\n${indent_spaces}` +
-                        `\n${less_indent_spaces}}`
-                textEditorEdit.insert(current_line.range.end, braces)
+                braces = ` ${braces}`
             }
-            else
-            {
-                braces = `{\n${indent_spaces}\n${less_indent_spaces}}`
-                if (current_line.text.endsWith(" ")) // avoid duplicated spaces
-                {
-                    // pass
-                }
-                else
-                {
-                    braces = ` ${braces}`
-                }
-                textEditorEdit.insert(current_line.range.end, braces)
-            }
-            
-            // After completion, vscode will move the cursor to the end of the added text
-            // if the cursor is currently at the end of the line, otherwise the cursor
-            // stays on the current line.
-            // Figure out is_at_end here. 
-            // Move the cursor into the newly created block.
-            if (is_at_end()) {
-                vscode.commands.executeCommand('cursorMove', {'to': 'up'})
-            }
-            else {
-                vscode.commands.executeCommand('cursorMove', {'to': 'down'})
-            }
-            vscode.commands.executeCommand('cursorMove', {'to': 'wrappedLineEnd'})
         }
-    }
-    else
-    {
-        if (current_line.text.trim() !== '' && !current_line.text.endsWith(';')) {
+        
+        // After completion, vscode will move the cursor to the end of the added text
+        // if the cursor is currently at the end of the line, otherwise the cursor
+        // stays on the current line.
+        // Figure out is_at_end here. 
+        // Move the cursor into the newly created block.
+        
+        /* comment at april 2022:
+        No need to check is_at_end!
+        We can just move the cursor to the end of line before insertion. */
+        
+        
+        /* -------------------------------------------------------------------------- */
+        /* trying to get the async operations in right order. 
+        Error: Edit is only valid while callback runs.
+        
+        according to https://github.com/microsoft/vscode/issues/78066,  
+        original textEditorEdit.insert is not working here, so use textEditor and editBuilder instead. */
+        
+        vscode.commands.executeCommand('cursorMove', { to: 'wrappedLineEnd' })
+            .then(() => { 
+                textEditor.edit((editBuilder) => {
+                    editBuilder.insert(current_line.range.end, braces);
+                });
+            }, error => {
+            console.error(error)
+            })
+            .then(() => {
+                vscode.commands.executeCommand('cursorMove', { to: 'up' });
+                vscode.commands.executeCommand('cursorMove', { to: 'wrappedLineEnd' });
+            }, error => {
+                console.error(error)
+            })
+        
+    } else {
+
+        vscode.commands.executeCommand('cursorMove', { 'to': 'wrappedLineEnd' })
+        
+        if (!(current_line.text.endsWith('{') ||
+            current_line.text.endsWith('}') ||
+            current_line.text.endsWith(';') || 
+            current_line.text.trim() === '')) { 
             textEditorEdit.insert(current_line.range.end, ';')
-        }
+        } 
 
         textEditorEdit.insert(current_line.range.end, '\n' + less_indent_spaces)
-        // If the cursor is currently at the end of the line,
-        // vscode will move it to the end of the next line after insertion.
-        // Otherwise we will move the cursor ourselves.
-        if(!is_at_end()) {
-            vscode.commands.executeCommand('cursorMove', {'to': 'down'})
-            vscode.commands.executeCommand('cursorMove', {'to': 'wrappedLineEnd'})
-        }
+
     }
 }
 
@@ -128,6 +128,7 @@ function looks_like_complex_structure(line: vscode.TextLine): boolean
         return true
     }
     // if else
+    // todo: more scenarios like elif and }else
     else if (trimmed.startsWith('if (') ||
              trimmed.startsWith('if(') ||
              trimmed.startsWith('} else') ||
@@ -156,15 +157,12 @@ function looks_like_complex_structure(line: vscode.TextLine): boolean
              trimmed.startsWith('function ') || // javascript
              trimmed.startsWith('func ') || // swift
              trimmed.startsWith('fun ') || // kotlin
-             trimmed.startsWith('def ') || // scala
+             trimmed.startsWith('def ') || // scala, python
              trimmed.startsWith('fn ') || // rust
              // Regexp is expensive, so we test it after other structures.
              /^\w+\s\w+\s?\(/.test(trimmed)) // c, java, ceylon
     {
         return true
     }
-    else
-    {
-        return false
-    }
+    return false
 }
