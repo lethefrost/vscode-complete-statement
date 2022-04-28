@@ -52,7 +52,7 @@ function complete_statement(textEditor: vscode.TextEditor,
         vscode.commands.executeCommand('cursorMove', {'to': 'wrappedLineEnd'})
         let braces: string
         const allman: boolean =
-                vscode.workspace.getConfiguration('complete-statement').get('allman', false)
+            vscode.workspace.getConfiguration('complete-statement').get('useAllmanStyle', false)
         if (allman)
         {
             braces = `\n${less_indent_spaces}{\n${indent_spaces}` +

@@ -31,9 +31,9 @@
     ],
     "configuration": {
       "type": "object",
-      "title": "complete-statement",
+      "title": "Complete Statement",
       "properties": {
-        "complete-statement": {
+        "complete-statement.useAllmanStyle": {
           "type": "boolean",
           "default": false,
           "description": "Allman style (beginning brace on its own line)."
